@@ -24,4 +24,6 @@ function(add_target NAME)
 endfunction()
 
 add_target(x1000_nano_som)
+add_target(cle)
+add_target(loshark_v2.2)
 

@@ -48,49 +48,77 @@
     be bound by the terms and conditions mentioned above.
 */
 
-#pragma once
+#include "../../petitinit.hpp"
 
-#include <cassert>
-#include <cinttypes>
-#include <cerrno>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
 
-#include <initializer_list>
+int main(int argc, char **argv) {
+	// Prevent accidental compilation and run on
+	// desktop PCs
+	asm("sll $zero, $zero, 0");
 
-#include <fcntl.h>
-#include <unistd.h>
+	if (getpid() != 1) {
+		puts("This program must run as init");
+		exit(2);
+	}
 
-#include <dirent.h>
-#include <sys/stat.h>
-#include <sys/statfs.h>
-#include <sys/mount.h>
-#include <sys/types.h>
-#include <sys/wait.h>
+	puts("Bienvenue à la clé !");
 
-#include <linux/magic.h>
+	char buf0[40960];
 
-using callback_list_dir = void(*)(const char *, struct stat *);
+	create_hier();
 
-extern void list_dir(const char *path, callback_list_dir cb, bool one_dev, dev_t root_dev);
-extern void list_dir(const char *path, callback_list_dir cb, bool one_dev = false);
+	assert(0 == mount_big_three("/"));
 
-extern int wait_path_exist(const char *path, unsigned msecs);
+	{
+		read_file("/logo.raw", buf0, sizeof(buf0));
 
-extern void create_hier();
+		int fd = open("/dev/fb0", O_RDWR);
+		if (fd > 0) {
+			write_all(fd, buf0, sizeof(buf0));
+			usleep(100 * 1000);
+			close(fd);
+		}
+	}
 
-extern int mount_it(const char *sf, const char *d, const char *ft = nullptr, int fl = 0, void *dt = nullptr);
-extern bool fs_is_mounted(const char *dir_path, unsigned long fs_magic);
-extern int mount_big_three(const char *path);
-extern int umount_big_three(const char *path);
+	ssize_t rc_read = read_file("/proc/cmdline", buf0, sizeof(buf0));
+	assert(rc_read);
 
-extern unsigned string_split(char *str, unsigned str_len, const char *delim, unsigned delim_len, char **output, unsigned output_len);
-extern unsigned string_split(char *str, const char *delim, char **output, unsigned output_len);
-extern const char *string_match_prefix(const char *cmd_option, const char *option_prefix);
-extern void string_match_prefix(const char *cmd_option, const char *option_prefix, const char **output);
+	char *cmdline[128];
+	auto rc = string_split(buf0, rc_read, " ", 1, cmdline, 128);
 
-extern size_t read_all(int fd, void *buf, size_t buf_size);
-extern size_t write_all(int fd, const void *buf, size_t buf_size);
-extern ssize_t read_file(const char *path, void *buf, size_t buf_size);
-extern ssize_t write_file(const char *path, const void *buf, size_t buf_size, int flags = O_WRONLY|O_CREAT|O_TRUNC, int mode = 0600);
+	const char *cl_root = nullptr, *cl_init = nullptr;
+
+	for (unsigned i=0; i<rc; i++) {
+		auto *it = cmdline[i];
+//		printf("[%u] %s\n", i, it);
+		string_match_prefix(it, "root=", &cl_root);
+		string_match_prefix(it, "init=", &cl_init);
+	}
+
+	printf("-- root: %s\n", cl_root);
+	printf("-- init: %s\n", cl_init);
+
+	assert(0 == wait_path_exist(cl_root, 10000));
+
+	assert(0 == mount_it(cl_root, "/new_root"));
+
+	assert(0 == umount_big_three("/"));
+
+	list_dir("/", [](auto *path, auto *sb){
+		if (S_ISDIR(sb->st_mode)) {
+			rmdir(path);
+		} else {
+			unlink(path);
+		}
+	}, true);
+
+	assert(0 == mount_big_three("/new_root"));
+
+	assert(0 == chroot("/new_root"));
+
+	execl(cl_init, cl_init, nullptr);
+
+	perror("putain");
+
+	return 43;
+}

@@ -48,49 +48,62 @@
     be bound by the terms and conditions mentioned above.
 */
 
-#pragma once
+#include "../../petitinit.hpp"
 
-#include <cassert>
-#include <cinttypes>
-#include <cerrno>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
 
-#include <initializer_list>
+int main(int argc, char **argv) {
+	// Prevent accidental compilation and run on
+	// desktop PCs
+	asm("sll $zero, $zero, 0");
 
-#include <fcntl.h>
-#include <unistd.h>
+	if (getpid() != 1) {
+		exit(2);
+	}
 
-#include <dirent.h>
-#include <sys/stat.h>
-#include <sys/statfs.h>
-#include <sys/mount.h>
-#include <sys/types.h>
-#include <sys/wait.h>
+	create_hier();
 
-#include <linux/magic.h>
+	assert(0 == mount_big_three("/"));
 
-using callback_list_dir = void(*)(const char *, struct stat *);
+	write_file("/sys/class/leds/red:indicator/brightness", "255\n", 4, O_WRONLY);
 
-extern void list_dir(const char *path, callback_list_dir cb, bool one_dev, dev_t root_dev);
-extern void list_dir(const char *path, callback_list_dir cb, bool one_dev = false);
+	const char *cl_root = "/dev/mmcblk0p1", *cl_init = "/linuxrc";
 
-extern int wait_path_exist(const char *path, unsigned msecs);
+	assert(0 == wait_path_exist(cl_root, 10000));
 
-extern void create_hier();
+	{
+		pid_t pid;
 
-extern int mount_it(const char *sf, const char *d, const char *ft = nullptr, int fl = 0, void *dt = nullptr);
-extern bool fs_is_mounted(const char *dir_path, unsigned long fs_magic);
-extern int mount_big_three(const char *path);
-extern int umount_big_three(const char *path);
+		pid = fork(); // create a new process
 
-extern unsigned string_split(char *str, unsigned str_len, const char *delim, unsigned delim_len, char **output, unsigned output_len);
-extern unsigned string_split(char *str, const char *delim, char **output, unsigned output_len);
-extern const char *string_match_prefix(const char *cmd_option, const char *option_prefix);
-extern void string_match_prefix(const char *cmd_option, const char *option_prefix, const char **output);
+		if (pid < 0) { // check for errors
+			return 2;
+		} else if (pid == 0) { // child process
+			execl("/jfs_fsck", "jfs_fsck", cl_root, nullptr);
+		}
+		else { // parent process
+			wait(nullptr);
+		}
+	}
 
-extern size_t read_all(int fd, void *buf, size_t buf_size);
-extern size_t write_all(int fd, const void *buf, size_t buf_size);
-extern ssize_t read_file(const char *path, void *buf, size_t buf_size);
-extern ssize_t write_file(const char *path, const void *buf, size_t buf_size, int flags = O_WRONLY|O_CREAT|O_TRUNC, int mode = 0600);
+	assert(0 == mount_it(cl_root, "/new_root", "jfs"));
+
+	assert(0 == umount_big_three("/"));
+
+	list_dir("/", [](auto *path, auto *sb){
+		if (S_ISDIR(sb->st_mode)) {
+			rmdir(path);
+		} else {
+			unlink(path);
+		}
+	}, true);
+
+	assert(0 == mount_big_three("/new_root"));
+
+	assert(0 == chroot("/new_root"));
+
+	execl(cl_init, cl_init, nullptr);
+
+	perror("fdp");
+
+	return 43;
+}
