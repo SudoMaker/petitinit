@@ -14,7 +14,7 @@ if (CMAKE_C_COMPILER MATCHES "mips")
             -flto -ffat-lto-objects
             )
     add_compile_options(${CFLAGS_COMMON})
-    add_link_options(${CFLAGS_COMMON} -Wl,-flto -Wl,--gc-sections -static)
+    add_link_options(${CFLAGS_COMMON} -Wl,-flto -Wl,--gc-sections -static -z noexecstack)
 endif()
 
 function(add_target NAME)
